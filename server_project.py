@@ -2,10 +2,53 @@ import socket
 import os
 import struct
 
-class ftpSock:
-    pass
+#this method was based off the geeks for geeks article on wildcard matching
+#https://www.geeksforgeeks.org/wildcard-pattern-matching/
+def strMatch(input=str(), pattern=str()):
 
-#this method was 'inspired' by the stacks overflow answer at:
+    #if the pattern is the empty string, it can only match the empty string
+    if len(pattern) == 0:
+        if len(input) == 0:
+            return True
+        else:
+            return False
+
+    matchTable = []
+
+    #x is the input
+    #y is the pattern
+    for x in range(0, len(input)+1):
+
+        matchTable.append([])
+        for y in range (0, len(pattern)+1):
+            matchTable[x].append(False)
+
+    #"empty pattern can match with empty string"
+    #in other works, the [0][0] indice indicates that no character have been consumed yet
+    matchTable[0][0] = True
+
+    for x in range(1, len(pattern)+1):
+        if pattern[x-1] == '*':
+            matchTable[0][x] = matchTable[0][x-1]
+
+    for x in range(1, len(input)+1):
+        for y in range(1, len(pattern)+1):
+
+            #case 1 - astrisk:
+            if pattern[y-1] == '*':
+                matchTable[x][y] = matchTable[x][y-1] or matchTable[x-1][y]
+
+            #case 2 next character in pattern is a ? or patterns match
+            elif pattern[y-1] == '?' or input[x-1] == pattern[y-1]:
+                matchTable[x][y] = matchTable[x-1][y-1]
+            #case 3 current characters in input and pattern down match
+            else:
+                matchTable[x][y] = False
+
+    #return the last column of the last row, which contains our answer
+    return matchTable[-1][-1]
+
+#this method was taken from a stacks overflow answer at:
 #   https://stackoverflow.com/questions/17667903/python-socket-receive-large-amount-of-data
 
 #this solution seems necessary as the recv will straight-up ignore bytes
@@ -15,31 +58,55 @@ def recvall(sock, n):
     data = b''
     print("datSize: ", len(data))
     while len(data) < n:
+        print("hi")
+
         packet = sock.recv(n - len(data))
+
+        if not packet:
+            return None
+
         print(packet)
         if packet:
             data += packet
 
     return data
 
-def getFile(sock, fileName):
-
-    #gets the fileSize
+def getMessage(sock):
+    #get the 4 byte header indicating the length
     data = recvall(sock, 4)
-    print("data", data)
-
     if not data:
         return None
+    else:
+        fileSize = struct.unpack("!I", data)[0]
 
-    fileSize = struct.unpack("!I", data)[0]
+        if fileSize != -1:
+            return recvall(sock, fileSize)
+        else:
+            return None
 
-    fileContents = recvall(sock, fileSize)
-    fileContents = fileContents.decode("utf_8")
-    
-    print(fileContents)
-    #TODO implement a way to send the file to any destination provided by a third argument
-    file = open(fileName, "w")
-    file.write(fileContents)
+
+#gets the data from getMessage(), but writes it to a file
+def getFile(sock, fileName):
+
+    fileContents = getMessage(sock)
+
+    if fileContents != None:
+        #TODO implement a way to send the file to any destination provided by a third argument
+        file = open(fileName, "wb")
+        file.write(fileContents)
+
+def sendMessage(sock, message):
+
+    packet = struct.pack("!I", len(message)) + message.encode("utf_8")
+    sock.sendall(packet)
+
+#same as sendMessage, but already assumes that the message is a bytestring
+def sendFile(sock, message):
+
+    packet = struct.pack("!I", len(message)) + message
+    sock.sendall(packet)
+
+
 
 """
      AF_INET - ipv4
@@ -73,18 +140,17 @@ while True:
 
     while True:
 
-
         datSize = recvall(c, 4)
         print(datSize)
+
         datSize = struct.unpack("!I", datSize)[0]
-        print(datSize)
         dat = recvall(c, datSize)
+        print(dat)
 
         if not c:
             print("bad")
             continue
-        #data = c.recv(8)
-        #data = data.decode()
+
         dataLine = dat.decode("utf-8")
 
         print(dataLine)
@@ -96,26 +162,31 @@ while True:
             dirContents = os.listdir(os.getcwd())
             dirString = " ".join(dirContents)
 
-            c.sendall(dirString.encode("utf-8"))
+            sendMessage(c, dirString)
+            print("done sending")
+
         elif(command == "cd"):
             arg = dataLine.split(" ")[1]
             os.chdir(arg)
             print(arg)
 
-            c.sendall(os.getcwd().encode("utf-8"))
+            sendMessage(c, os.getcwd())
+            print("done changing")
+
         elif(command == "get"):
             #attempts to get the filepath
             filePath = dataLine.split(" ")[1]
             #this is just to get rid of the newline sent across
             filePath = filePath.rstrip()
 
-            file = open(filePath, 'r')
-            fileName = os.path.basename(filePath)
+            file = open(filePath, 'rb')
             fileSize = os.path.getsize(filePath)
+
             fileContents = file.read()
 
-            message = struct.pack("!I", len(fileName)) + fileName.encode("utf_8") + struct.pack("!I", fileSize) + fileContents.encode("utf_8")
-            c.sendall(message)
+            message = struct.pack("!I", fileSize) + fileContents
+            sendFile(c, message)
+
         elif(command == "put"):
             #attempts to get the filepath
             filePath = dataLine.split(" ")[1]
@@ -126,15 +197,21 @@ while True:
 
             getFile(c, fileName)
 
+        elif(command == "mget"):
 
+            fileNames = os.listdir(os.getcwd())
+            pattern = dataLine.split(" ")[2]
 
-        inp = input()
-        c.sendall(inp.encode("utf-8"))
+            for name in fileNames:
+                if strMatch(name, pattern):
+                    filePath = os.getcwd() + '\\' + name
+                    file = open(filePath, 'rb')
+                    fileContents = file.read()
+                    file.close()
 
-        #print(msg)
-        #command reads what the commands were so that the loop can exit
-        #command = processAction(sock)
+                    sendFile(c, fileContents)
 
-        #if(command == "close"):
-        #    c.close()
-        #    break
+            sendMessage(c, "!stop")
+
+        elif( command == "mput" ):
+            getFile(c, "")
