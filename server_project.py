@@ -209,9 +209,29 @@ while True:
                     fileContents = file.read()
                     file.close()
 
-                    sendFile(c, fileContents)
+                    message = struct.pack("!I", len(name)) + name.encode("utf_8") + fileContents
+                    sendFile(c, message)
 
-            sendMessage(c, "!stop")
+            exitCode = struct.pack("!I", -1)
+            c.sendall(exitCode)
 
         elif( command == "mput" ):
-            getFile(c, "")
+            fileSize = recvall(c, 4)
+            fileSize = struct.unpack("!I", fileSize)[0]
+
+            while fileSize != -1:
+                fileNameSize = recvall(c, 4)
+                if fileNameSize:
+                    fileNameSize = struct.unpack("!I", fileNameSize)
+                    fileName = recvall(c, fileNameSize)
+
+                    fileSize = fileSize - (4 + fileName)
+                    fileContents = recvall(c, fileSize)
+
+                    file = open(fileName.decode("utf_8"), "wb")
+                    file.write(fileContents)
+
+                    fileContents = recvall(c, 4)
+                    fileContents = struct.unpack("!I", fileContents)
+                else
+                    break
