@@ -56,16 +56,14 @@ def strMatch(input=str(), pattern=str()):
 def recvall(sock, n):
     # Helper function to recv n bytes or return None if EOF is hit
     data = b''
-    print("datSize: ", len(data))
+
     while len(data) < n:
-        print("hi")
 
         packet = sock.recv(n - len(data))
 
         if not packet:
             return None
 
-        print(packet)
         if packet:
             data += packet
 
@@ -77,7 +75,7 @@ def getMessage(sock):
     if not data:
         return None
     else:
-        fileSize = struct.unpack("!I", data)[0]
+        fileSize = struct.unpack("!i", data)[0]
 
         if fileSize != -1:
             return recvall(sock, fileSize)
@@ -94,16 +92,17 @@ def getFile(sock, fileName):
         #TODO implement a way to send the file to any destination provided by a third argument
         file = open(fileName, "wb")
         file.write(fileContents)
+        file.close()
 
 def sendMessage(sock, message):
 
-    packet = struct.pack("!I", len(message)) + message.encode("utf_8")
+    packet = struct.pack("!i", len(message)) + message.encode("utf_8")
     sock.sendall(packet)
 
 #same as sendMessage, but already assumes that the message is a bytestring
 def sendFile(sock, message):
 
-    packet = struct.pack("!I", len(message)) + message
+    packet = struct.pack("!i", len(message)) + message
     sock.sendall(packet)
 
 
@@ -130,11 +129,11 @@ while True:
 
     #login
     print("logic credentials:")
-    c.sendall("ID?: ".encode("utf-8"))
+    c.sendall("ID?: ".encode("utf_8"))
     account = c.recv(1024)
     print(account.decode("utf-8"))
 
-    c.sendall("password?: ".encode("utf-8"))
+    c.sendall("password?: ".encode("utf_8"))
     password = c.recv(1024)
     print(password.decode("utf-8"))
 
@@ -143,7 +142,7 @@ while True:
         datSize = recvall(c, 4)
         print(datSize)
 
-        datSize = struct.unpack("!I", datSize)[0]
+        datSize = struct.unpack("!i", datSize)[0]
         dat = recvall(c, datSize)
         print(dat)
 
@@ -183,8 +182,9 @@ while True:
             fileSize = os.path.getsize(filePath)
 
             fileContents = file.read()
+            file.close()
 
-            message = struct.pack("!I", fileSize) + fileContents
+            message = struct.pack("!i", fileSize) + fileContents
             sendFile(c, message)
 
         elif(command == "put"):
@@ -200,7 +200,7 @@ while True:
         elif(command == "mget"):
 
             fileNames = os.listdir(os.getcwd())
-            pattern = dataLine.split(" ")[2]
+            pattern = dataLine.split(" ")[1]
 
             for name in fileNames:
                 if strMatch(name, pattern):
@@ -209,29 +209,31 @@ while True:
                     fileContents = file.read()
                     file.close()
 
-                    message = struct.pack("!I", len(name)) + name.encode("utf_8") + fileContents
+                    message = struct.pack("!i", len(name)) + name.encode("utf_8") + fileContents
                     sendFile(c, message)
 
-            exitCode = struct.pack("!I", -1)
+            exitCode = struct.pack("!i", -1)
             c.sendall(exitCode)
 
         elif( command == "mput" ):
             fileSize = recvall(c, 4)
-            fileSize = struct.unpack("!I", fileSize)[0]
+            fileSize = struct.unpack("!i", fileSize)[0]
 
             while fileSize != -1:
                 fileNameSize = recvall(c, 4)
                 if fileNameSize:
-                    fileNameSize = struct.unpack("!I", fileNameSize)
+                    fileNameSize = struct.unpack("!i", fileNameSize)[0]
                     fileName = recvall(c, fileNameSize)
 
-                    fileSize = fileSize - (4 + fileName)
+                    fileSize = fileSize - (4 + fileNameSize)
                     fileContents = recvall(c, fileSize)
 
                     file = open(fileName.decode("utf_8"), "wb")
                     file.write(fileContents)
+                    file.close()
 
-                    fileContents = recvall(c, 4)
-                    fileContents = struct.unpack("!I", fileContents)
-                else
+                    fileSize = recvall(c, 4)
+                    print(fileSize)
+                    fileSize = struct.unpack("!i", fileSize)[0]
+                else:
                     break
